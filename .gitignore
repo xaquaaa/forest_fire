@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.pyc
+
+# Conda / venv
+env/
+venv/
+.conda/
+
+# Node / React
+node_modules/
+dist/
+build/
+
+# GIS / ML data
+*.tif
+*.tiff
+*.img
+*.vrt
+*.nc
+*.aux.xml
+*.npz
+*.npy
+*.csv
+*.h5
+*.pth
+
+# Outputs
+outputs/
+output_risks/
+training_data/
+DAILY_INPUT_DATA/
+
+# Archives
+*.zip
+
+# Media
+*.gif
+*.png
+*.jpg
+
+# OS
+.DS_Store
+Thumbs.db
+
+# React build output
+simulation4_react+flask/backend/static/
+
+# Runtime user data
+simulation4_react+flask/backend/data/**/user_ignition.txt
+

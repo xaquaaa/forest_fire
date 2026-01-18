@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Wildfire Risk App</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Inter font -->
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+      * { font-family: 'Inter', sans-serif; }
+
+      input[type="date"]::-webkit-calendar-picker-indicator {
+          opacity: 1;
+          cursor: pointer;
+          padding: 0 8px;
+      }
+      input[type="date"] { cursor: pointer; }
+
+      /* Ensure Leaflet map fills its container */
+      .leaflet-container { width: 100%; height: 100%; }
+    </style>
+
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- React and Babel (UMD builds) -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <div id="root">
+    <div class="p-16 text-center text-gray-500 text-xl font-semibold">
+      Loading Application... If this persists, check the browser console for errors.
+    </div>
+  </div>
+
+  <script type="text/babel">
+  const { useState, useEffect, useCallback, useMemo, useRef } = React;
+
+  // --- MOCK DATA AND TYPES (unchanged) ---
+  const USER_ROLES = {
+    GENERAL_USER: 'general',
+    FOREST_OFFICIAL: 'forest_official',
+    GOVERNMENT_AUTHORITY: 'government',
+  };
+
+  const mockUser = {
+    id: 'user-123',
+    fullName: 'P. Chandra',
+    email: 'p.chandra@uttarakhand.gov',
+    role: USER_ROLES.GOVERNMENT_AUTHORITY,
+  };
+
+  const mockRiskZones = [
+    { id: 'almora-north', name: 'Almora North Range', district: 'Almora', riskScore: 0.95, riskLevel: 'Extreme', weatherData: { temperature: 31, windSpeed: 15.2, humidity: 45 }, vegetation: { ndvi: 0.58, fuelLoad: 4.2 }, areaKm2: 256.3, lastUpdated: '2025-11-29' },
+    { id: 'nainital-east', name: 'Nainital East Range', district: 'Nainital', riskScore: 0.78, riskLevel: 'High', weatherData: { temperature: 28, windSpeed: 8.5, humidity: 60 }, vegetation: { ndvi: 0.72, fuelLoad: 2.1 }, areaKm2: 188.9, lastUpdated: '2025-11-28' },
+    { id: 'pauri-central', name: 'Pauri Garhwal Central', district: 'Pauri Garhwal', riskScore: 0.42, riskLevel: 'Moderate', weatherData: { temperature: 24, windSpeed: 5.1, humidity: 75 }, vegetation: { ndvi: 0.85, fuelLoad: 1.5 }, areaKm2: 320.0, lastUpdated: '2025-11-29' },
+    { id: 'chamoli-high', name: 'Chamoli High Altitude', district: 'Chamoli', riskScore: 0.15, riskLevel: 'Low', weatherData: { temperature: 18, windSpeed: 2.0, humidity: 80 }, vegetation: { ndvi: 0.91, fuelLoad: 0.8 }, areaKm2: 410.1, lastUpdated: '2025-11-29' },
+  ];
+
+  const getRiskColor = (level) => {
+    switch (level) {
+      case 'Extreme': return 'bg-red-600 text-white';
+      case 'High': return 'bg-orange-500 text-white';
+      case 'Moderate': return 'bg-yellow-400 text-gray-800';
+      case 'Low': return 'bg-green-500 text-white';
+      default: return 'bg-gray-200 text-gray-800';
+    }
+  };
+
+  // Simple inline Icon component (kept small)
+  const Icon = ({ path, className="w-6 h-6" }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      {path.map((d,i) => <path key={i} d={d} />)}
+    </svg>
+  );
+  const ForestIcon = (props) => <Icon {...props} path={["M6 8L3 11l3 3V8z","M18 8l3 3l-3 3V8z","M9 4l-5 5v6l5 5h6l5-5V9l-5-5H9z","M12 12v6"]} />;
+  const UserIcon = (props) => <Icon {...props} path={["M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2","M12 11V5","M17 11V5","M7 11V5","M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"]} />;
+  const MapIcon = (props) => <Icon {...props} path={["M3 3v18h18","M21 3H8L3 8V3","M12 12l9-9","M12 12L3 21"]} />;
+  const DateIcon = (props) => <Icon {...props} path={["M12 1v1","M12 23v1","M1 12h1","M23 12h1","M4.22 4.22l.71.71","M19.07 19.07l.71.71","M4.22 19.78l.71-.71","M19.07 4.93l.71-.71","M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z","M12 6v6l4 2"]} />;
+  const DownloadIcon = (props) => <Icon {...props} path={["M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4","M7 10l5 5 5-5","M12 15V3"]} />;
+  const PsychologyIcon = (props) => <Icon {...props} path={["M3 12h18","M12 3v18","M3 17a4 4 0 0 0 4 4c2.2 0 4-1.8 4-4a4 4 0 0 0-4-4H3z","M21 7a4 4 0 0 1-4-4c-2.2 0-4 1.8-4 4a4 4 0 0 1 4 4h4z"]} />;
+  const GridIcon = (props) => <Icon {...props} path={["M3 3h7v7H3z","M14 3h7v7h-7z","M14 14h7v7h-7z","M3 14h7v7H3z"]} />;
+  const TerrainIcon = (props) => <Icon {...props} path={["M12 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z","M18 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z","M6 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z","M12 16a2 2 0 1 0 0-4 2 2 0 0 0 0 4z","M18 16a2 2 0 1 0 0-4 2 2 0 0 0 0 4z","M6 16a2 2 0 1 0 0-4 2 2 0 0 0 0 4z","M2 20h20"]} />;
+  const SatelliteIcon = (props) => <Icon {...props} path={["M12 2a10 10 0 0 0-9.8 9H1v2h1.2A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16z","M12 8l4 4-4 4V8z"]} />;
+
+  // Small loader
+  const Loader = () => (
+    <div className="flex items-center justify-center p-8">
+      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-600"></div>
+    </div>
+  );
+
+  // Header
+  const Header = ({ title, onLogout, user }) => {
+    const roleDisplay = useMemo(() => {
+      switch (user?.role) {
+        case USER_ROLES.GOVERNMENT_AUTHORITY: return 'Government Authority';
+        case USER_ROLES.FOREST_OFFICIAL: return 'Forest Official';
+        default: return 'General User';
+      }
+    }, [user]);
+    const roleColor = useMemo(() => {
+      switch (user?.role) {
+        case USER_ROLES.GOVERNMENT_AUTHORITY: return 'bg-red-800';
+        case USER_ROLES.FOREST_OFFICIAL: return 'bg-yellow-600';
+        default: return 'bg-blue-600';
+      }
+    }, [user]);
+
+    return (
+      <header className="bg-green-800 text-white shadow-lg">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center space-x-3">
+              <ForestIcon className="w-8 h-8" />
+              <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
+            </div>
+            {user && (
+              <div className="flex items-center space-x-4">
+                <span className={`px-3 py-1 text-xs font-medium rounded-full ${roleColor}`}>{roleDisplay}</span>
+                <div className="flex items-center space-x-2">
+                  <UserIcon className="w-6 h-6" />
+                  <span className="text-sm font-medium">{user.fullName}</span>
+                  <button onClick={onLogout} className="ml-4 px-3 py-1 text-sm font-medium bg-green-700 hover:bg-green-600 rounded-lg transition">Logout</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </header>
+    );
+  };
+
+  // Login page (unchanged)
+  const LoginPage = ({ onLogin }) => {
+    const [selectedRole, setSelectedRole] = useState(USER_ROLES.GENERAL_USER);
+    const [error, setError] = useState('');
+
+    const handleLogin = () => {
+      setError('');
+      const user = { ...mockUser, role: selectedRole };
+      onLogin(user);
+    };
+
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-4">
+        <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md">
+          <div className="flex flex-col items-center mb-6">
+            <ForestIcon className="w-12 h-12 text-green-700 mb-2" />
+            <h2 className="text-3xl font-extrabold text-gray-900">Wildfire Risk System</h2>
+            <p className="text-sm text-gray-500 mt-1">Sign in to view Uttarakhand risk maps</p>
+          </div>
+
+          {error && <div className="bg-red-100 text-red-700 p-3 rounded-lg mb-4">{error}</div>}
+
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold text-gray-700">Select Mock Role:</h3>
+            <div className="space-y-2">
+              {Object.entries(USER_ROLES).map(([key, role]) => (
+                <button key={key} onClick={() => setSelectedRole(role)}
+                  className={`w-full p-3 rounded-lg text-left transition duration-200 border-2 ${selectedRole === role ? 'bg-green-500 text-white border-green-600 shadow-md' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'}`}>
+                  <span className="font-medium">{key.split('_').map(word => word.charAt(0).toUpperCase()+word.slice(1)).join(' ')}</span>
+                  <p className="text-xs mt-1 opacity-80">
+                    {role === USER_ROLES.GOVERNMENT_AUTHORITY && "Highest priority access and data control."}
+                    {role === USER_ROLES.FOREST_OFFICIAL && "Access to detailed regional data and planning tools."}
+                    {role === USER_ROLES.GENERAL_USER && "Standard viewing access to risk zones and public data."}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button onClick={handleLogin} className="mt-6 w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-lg font-medium text-white bg-green-700 hover:bg-green-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition duration-150">Sign In</button>
+        </div>
+      </div>
+    );
+  };
+
+  // Dashboard page (unchanged structure)
+  const DashboardPage = ({ user, onSelectZone }) => {
+    const [selectedZone, setSelectedZone] = useState(null);
+    const [showModal, setShowModal] = useState(false);
+
+    const handleZoneClick = (zone) => { setSelectedZone(zone); setShowModal(true); };
+    const handleViewSelect = (viewMode) => { if (selectedZone) { onSelectZone(selectedZone.id, viewMode); } setShowModal(false); };
+
+    const sortedZones = useMemo(() => [...mockRiskZones].sort((a,b) => b.riskScore - a.riskScore), []);
+
+    const ViewSelectionModal = () => {
+      const openSimulation = () => {
+        window.open(
+          "http://localhost:5001/?region=almora",
+          "_blank"
+        );
+
+      };
+
+      if (!selectedZone) return null;
+      const ViewOption = ({ icon, label, mode, onClick }) => (
+        <button
+          onClick={onClick ? onClick : () => handleViewSelect(mode)}
+          className="flex flex-col items-center justify-center p-6 bg-gray-50 hover:bg-green-100 rounded-xl shadow-md transition-all duration-300 transform hover:scale-105"
+        >
+
+          {icon}
+          <span className="mt-2 text-lg font-semibold text-gray-700">{label}</span>
+          <p className="text-xs text-gray-500 mt-1">{mode==='grid'?'Detailed AI prediction and CA simulation.': mode==='terrain' ? 'Topographic and elevation analysis.' : 'Real-time satellite imagery.'}</p>
+        </button>
+      );
+
+      return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-2xl">
+            <h3 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">Analyze {selectedZone.name}</h3>
+            <p className="text-gray-600 mb-6">Select a visualization mode to proceed:</p>
+            <div className="grid grid-cols-4 gap-6">
+              <ViewOption icon={<GridIcon className="w-10 h-10 text-blue-600" />} label="Grid View" mode="grid" />
+              <ViewOption icon={<TerrainIcon className="w-10 h-10 text-green-600" />} label="Terrain View" mode="terrain" />
+              <ViewOption icon={<SatelliteIcon className="w-10 h-10 text-purple-600" />} label="Satellite View" mode="satellite" />
+              <ViewOption
+                icon={<span className="text-4xl">🔥</span>}
+                label="Simulation"
+                onClick={openSimulation}
+              />
+
+
+            </div>
+            <button onClick={() => setShowModal(false)} className="mt-6 float-right px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900">Cancel</button>
+          </div>
+        </div>
+      );
+    };
+
+    return (
+      <div className="bg-gray-50 min-h-screen">
+        <Header title="Uttarakhand Wildfire Dashboard" user={user} />
+        <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+          <h2 className="text-3xl font-extrabold text-gray-900 mb-6 border-b pb-2">Top {sortedZones.length} Highest Risk Zones in Uttarakhand</h2>
+          <div className="space-y-6">
+            {sortedZones.map((zone, index) => (
+              <div key={zone.id} onClick={() => handleZoneClick(zone)} className="bg-white p-6 rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-300 cursor-pointer border-l-4 border-green-600">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900">{index+1}. {zone.name}</h3>
+                    <p className="text-sm text-gray-500 mt-1">{zone.district} District</p>
+                  </div>
+                  <div className={`px-4 py-1 rounded-full text-sm font-semibold ${getRiskColor(zone.riskLevel)} shadow-md`}>{zone.riskLevel}</div>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mt-4 text-sm">
+                  <DetailBox label="Risk Score" value={`${(zone.riskScore*100).toFixed(1)}%`} />
+                  <DetailBox label="Risk Level" value={zone.riskLevel} />
+                  <DetailBox label="Temperature" value={`${zone.weatherData.temperature}°C`} />
+                  <DetailBox label="Wind Speed" value={`${zone.weatherData.windSpeed} km/h`} />
+                  <DetailBox label="Area" value={`${zone.areaKm2.toFixed(1)} km²`} />
+                  <DetailBox label="Last Updated" value={zone.lastUpdated} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        {showModal && <ViewSelectionModal />}
+      </div>
+    );
+  };
+
+  const DetailBox = ({ label, value }) => (
+    <div className="flex flex-col p-2 bg-gray-50 rounded-md">
+      <span className="text-xs font-medium text-gray-500">{label}</span>
+      <span className="text-sm font-bold text-gray-800">{value}</span>
+    </div>
+  );
+
+  // --- GridViewPage with Leaflet integration (UNCHANGED) ---
+  const GridViewPage = ({ user, zoneId, viewMode, onBack }) => {
+    const zone = mockRiskZones.find(z => z.id === zoneId);
+    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [loading, setLoading] = useState(false);
+    const [message, setMessage] = useState('');
+    const [error, setError] = useState('');
+    // mapResult supports png_url, geotiff_filename, png_bounds, high_geojson, med_geojson
+    const [mapResult, setMapResult] = useState({ png_url: null, geotiff_filename: null, png_bounds: null, high_geojson: null, med_geojson: null });
+
+    // Leaflet refs
+    const mapRef = useRef(null);
+    const imageOverlayRef = useRef(null);
+    const highLayerRef = useRef(null);
+    const medLayerRef = useRef(null);
+
+    // Approx bbox for Almora if backend doesn't return bounds: [[south, west],[north, east]]
+    const ALMORA_BOUNDS = [[29.35, 79.40], [29.95, 80.10]];
+
+    // Initialize map on mount
+    useEffect(() => {
+      if (!mapRef.current) {
+        mapRef.current = L.map('leaflet-map', { zoomControl: true }).setView([29.6, 79.7], 10);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(mapRef.current);
+      }
+      // No explicit destroy — map persists for this single-page demo
+    }, []);
+
+    // Helper to clear overlays
+    const clearOverlays = () => {
+      try {
+        if (imageOverlayRef.current && mapRef.current.hasLayer(imageOverlayRef.current)) { mapRef.current.removeLayer(imageOverlayRef.current); }
+      } catch(e) {}
+      imageOverlayRef.current = null;
+
+      try {
+        if (highLayerRef.current && mapRef.current.hasLayer(highLayerRef.current)) mapRef.current.removeLayer(highLayerRef.current);
+      } catch(e) {}
+      highLayerRef.current = null;
+
+      try {
+        if (medLayerRef.current && mapRef.current.hasLayer(medLayerRef.current)) mapRef.current.removeLayer(medLayerRef.current);
+      } catch(e) {}
+      medLayerRef.current = null;
+    };
+
+    // Whenever mapResult changes, update overlays
+    useEffect(() => {
+      if (!mapRef.current) return;
+      clearOverlays();
+
+      // Add PNG overlay if present
+      if (mapResult.png_url) {
+        const bounds = mapResult.png_bounds || ALMORA_BOUNDS;
+        try {
+          imageOverlayRef.current = L.imageOverlay(mapResult.png_url, bounds, { opacity: 0.7, interactive: false }).addTo(mapRef.current);
+          mapRef.current.fitBounds(bounds, { maxZoom: 15 });
+        } catch (e) {
+          console.error('Failed to add image overlay:', e);
+        }
+      }
+
+      // Add high risk polygons (if provided)
+      if (mapResult.high_geojson) {
+        try {
+          highLayerRef.current = L.geoJSON(mapResult.high_geojson, {
+            style: () => ({ color: '#b71c1c', fillColor: '#ff5252', weight: 2, fillOpacity: 0.55 }),
+            onEachFeature: (feature, layer) => {
+              if (feature.properties && feature.properties.label) layer.bindPopup(`High: ${feature.properties.label}`);
+            }
+          }).addTo(mapRef.current);
+        } catch (e) { console.error('Failed to add high risk GeoJSON:', e); }
+      }
+
+      // Add medium risk polygons (if provided)
+      if (mapResult.med_geojson) {
+        try {
+          medLayerRef.current = L.geoJSON(mapResult.med_geojson, {
+            style: () => ({ color: '#e65100', fillColor: '#ffb74d', weight: 2, fillOpacity: 0.45 }),
+            onEachFeature: (feature, layer) => {
+              if (feature.properties && feature.properties.label) layer.bindPopup(`Medium: ${feature.properties.label}`);
+            }
+          }).addTo(mapRef.current);
+        } catch (e) { console.error('Failed to add med risk GeoJSON:', e); }
+      }
+    }, [mapResult]);
+
+    const handleRunPrediction = async () => {
+      if (!selectedDate) { setError('Please select a valid date for prediction.'); return; }
+      setLoading(true); setError(''); setMessage(''); setMapResult({ png_url: null, geotiff_filename: null, png_bounds: null, high_geojson: null, med_geojson: null });
+
+      const API_URL = 'http://localhost:5000/api/wildfire/predict';
+
+      try {
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ zoneId: zone.id, date: selectedDate })
+        });
+
+        if (!response.ok) {
+          let errMsg = `Server error: ${response.status} ${response.statusText}`;
+          try { const errData = await response.json(); errMsg = errData.error || errMsg; } catch(e) {}
+          throw new Error(errMsg);
+        }
+
+        const resultData = await response.json();
+
+        // Expecting at least png_url and optional png_bounds, high_geojson, med_geojson
+        setMapResult({
+          png_url: resultData.png_url || null,
+          geotiff_filename: resultData.geotiff_filename || null,
+          png_bounds: resultData.png_bounds || null,
+          high_geojson: resultData.high_geojson || null,
+          med_geojson: resultData.med_geojson || null,
+        });
+
+        setMessage('✅ Prediction successful. Map generated and overlaid on the basemap.');
+      } catch (err) {
+        console.error('Prediction failed:', err);
+        setError(err.message || 'An unknown error occurred during prediction.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const handleDownloadGeoTIFF = () => {
+      if (!mapResult.geotiff_filename) { setError('No GeoTIFF file available to download.'); return; }
+      const downloadUrl = `http://localhost:5000/api/wildfire/download/${mapResult.geotiff_filename}`;
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = mapResult.geotiff_filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    };
+
+    // Small controls to interact with overlay
+    const setOverlayOpacity = (opacity) => { if (imageOverlayRef.current) imageOverlayRef.current.setOpacity(opacity); };
+    const centerAlmora = () => { if (mapRef.current) mapRef.current.setView([29.6, 79.7], 10); };
+
+    if (!zone || viewMode !== 'grid') {
+      return (
+        <div className="p-8 text-center">
+          <h2 className="text-2xl font-bold">Unsupported View Mode</h2>
+          <p className="mt-2 text-gray-600">This is the Grid View page. Please ensure you selected "Grid View".</p>
+          <button onClick={onBack} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">Go Back</button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="bg-gray-50 min-h-screen">
+        <Header title={`Grid View: ${zone.name}`} user={user} onLogout={() => {}} />
+        <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+          <button onClick={onBack} className="flex items-center text-blue-600 hover:text-blue-800 mb-6 font-medium transition">
+            <Icon path={["M19 12H5","M12 19l-7-7 7-7"]} className="w-5 h-5 mr-2" /> Back to Dashboard
+          </button>
+
+          <h2 className="text-3xl font-extrabold text-gray-900 mb-6">Risk Prediction & Simulation</h2>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* LEFT PANEL: Controls & Status */}
+            <div className="space-y-6 lg:col-span-1">
+              <div className="bg-white p-6 rounded-xl shadow-lg border-l-4 border-blue-600">
+                <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+                  <PsychologyIcon className="w-6 h-6 mr-2 text-blue-600" />
+                  U-NET Prediction
+                </h3>
+                
+                {/* Date Selector */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Select Prediction Date
+                  </label>
+                  <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden">
+                    <span className="p-3 bg-gray-100 border-r border-gray-300">
+                      <DateIcon className="w-5 h-5 text-gray-500" />
+                    </span>
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(e) => setSelectedDate(e.target.value)}
+                      className="w-full p-3 text-gray-800 focus:outline-none"
+                    />
+                  </div>
+                </div>
+                
+                {/* Run Prediction Button */}
+                <button
+                  onClick={handleRunPrediction}
+                  disabled={loading}
+                  className={`w-full flex justify-center items-center py-3 px-4 rounded-lg text-lg font-medium text-white transition duration-150 ${
+                    loading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 shadow-md'
+                  }`}
+                >
+                  {loading ? (
+                    <>
+                      <div className="animate-spin h-5 w-5 mr-3 border-t-2 border-r-2 border-white rounded-full"></div>
+                      Generating Map...
+                    </>
+                  ) : (
+                    <>
+                      <PsychologyIcon className="w-5 h-5 mr-2" />
+                      Run U-NET Prediction
+                    </>
+                  )}
+                </button>
+                
+                {/* Download Button (Only visible after a successful map generation) */}
+                {mapResult.geotiff_filename && (
+                  <button
+                    onClick={handleDownloadGeoTIFF}
+                    className="mt-3 w-full flex justify-center items-center py-3 px-4 rounded-lg text-sm font-medium text-green-700 border border-green-700 hover:bg-green-50 transition duration-150"
+                  >
+                    <DownloadIcon className="w-5 h-5 mr-2" />
+                    Download GeoTIFF (.tif)
+                  </button>
+                )}
+
+                {/* Status Messages */}
+                {error && (
+                  <div className="mt-4 p-3 text-sm bg-red-100 text-red-700 rounded-lg border border-red-300">
+                    Error: {error}
+                  </div>
+                )}
+                {message && (
+                  <div className="mt-4 p-3 text-sm bg-green-100 text-green-700 rounded-lg border border-green-300">
+                    {message}
+                  </div>
+                )}
+              </div>
+              
+              {/* Simulation Panel */}
+              <div className="bg-white p-6 rounded-xl shadow-lg border-l-4 border-yellow-500">
+                <div className="flex items-center space-x-2 text-xl font-semibold text-gray-700 mb-4">
+                  <Icon path={["M10 5a2 2 0 1 1 4 0 2 2 0 0 1-4 0z", "M12 10v4", "M12 14l4-4", "M12 14l-4-4"]} className="w-6 h-6 text-yellow-500"/>
+                  <span>Fire Spread Simulation</span>
+                </div>
+                <p className="text-sm text-gray-600 mb-4">
+                  This area will house the Cellular Automata (CA) simulation controls and visualization. The CA model uses the U-NET risk map as a base layer.
+                </p>
+                <div className="bg-gray-100 p-4 rounded-lg h-60 flex items-center justify-center">
+                  <span className="text-gray-400">CA Simulation Placeholder</span>
+                </div>
+                <button
+                  disabled
+                  className="mt-4 w-full py-2 bg-yellow-600 text-white rounded-lg opacity-50 cursor-not-allowed"
+                >
+                  Run Simulation (Coming Soon)
+                </button>
+              </div>
+              
+              {/* Zone Details */}
+              <div className="bg-white p-6 rounded-xl shadow-lg">
+                <h3 className="text-xl font-semibold text-gray-800 mb-4">
+                  Zone & Model Details
+                </h3>
+                <div className="text-sm space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Region Area:</span>
+                    <span className="font-medium">{zone.areaKm2.toFixed(1)} km²</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Model Used:</span>
+                    <span className="font-medium text-green-700">U-NET + ResNet18 Backbone</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Output Resolution:</span>
+                    <span className="font-medium">512x512 pixels (30m/pixel)</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Risk Map Classes:</span>
+                    <span className="font-medium">High, Medium, Low, No Risk</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* RIGHT PANEL: Risk Map Visualization */}
+            <div className="lg:col-span-2 space-y-6">
+              <div className="bg-white p-6 rounded-xl shadow-lg h-full">
+                <h3 className="text-xl font-semibold text-gray-800 mb-4 border-b pb-2">
+                  Current Risk Map Visualization (Grid View)
+                </h3>
+                <div className="text-sm space-y-2 mb-4">
+                  <DetailBox 
+                    label="Current Risk Level" 
+                    value={zone.riskLevel} 
+                    className={`${getRiskColor(zone.riskLevel)}`}
+                  />
+                  <div className="grid grid-cols-3 gap-2">
+                    <DetailBox label="Prediction Date" value={selectedDate} />
+                    <DetailBox label="Temp" value={`${zone.weatherData.temperature}°C`} />
+                    <DetailBox label="Wind" value={`${zone.weatherData.windSpeed} km/h`} />
+                  </div>
+                </div>
+                {/* Risk Map Visualization Component */}
+                <div className="grid grid-cols-3 gap-2 mb-4">
+                  <div className="col-span-3 h-96 rounded-lg overflow-hidden border border-gray-200">
+                    {/* Leaflet container - Risk Map Visualization Area */}
+                    <div id="leaflet-map" style={{width: '100%', height: '100%'}}></div>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-3 mt-4">
+                  <button onClick={centerAlmora} className="px-3 py-2 bg-gray-100 rounded">Center Almora</button>
+                  <button onClick={() => setOverlayOpacity(0.3)} className="px-3 py-2 bg-gray-100 rounded">Lower Overlay Opacity</button>
+                  <button onClick={() => setOverlayOpacity(0.85)} className="px-3 py-2 bg-gray-100 rounded">Increase Overlay Opacity</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ---------------------------
+  // NEW: TerrainViewPage (ADDED)
+  // ---------------------------
+  const TerrainViewPage = ({ user, zoneId, onBack }) => {
+    // Uses a separate map container id so it won't conflict with GridView's map
+    const zone = mockRiskZones.find(z => z.id === zoneId);
+    const mapRef = useRef(null);
+    const containerId = `terrain-map-${zoneId}`;
+
+    // default center for Almora (approx)
+    const defaultCenter = [29.6, 79.7];
+    const defaultZoom = 11;
+
+    useEffect(() => {
+      if (!mapRef.current) {
+        mapRef.current = L.map(containerId, { zoomControl: true }).setView(defaultCenter, defaultZoom);
+
+        // Topographic / terrain base
+        const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+          maxZoom: 17,
+          attribution: '© OpenTopoMap (CC-BY-SA)'
+        });
+
+        // OSM reference layer
+        const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors'
+        });
+
+        topo.addTo(mapRef.current);
+
+        // Add layer control so user can switch
+        L.control.layers({ 'Terrain (Topographic)': topo, 'Street (OSM)': osm }, {}, { position: 'topright' }).addTo(mapRef.current);
+      }
+
+      // cleanup when unmount to avoid duplicates if user comes back
+      return () => {
+        if (mapRef.current) {
+          mapRef.current.remove();
+          mapRef.current = null;
+        }
+      };
+    }, [containerId]);
+
+    return (
+      <div className="bg-gray-50 min-h-screen">
+        <Header title={`Terrain View: ${zone?.name || ''}`} user={user} />
+        <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+          <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b">
+              <div className="flex items-center space-x-3">
+                <button onClick={onBack} className="px-3 py-2 bg-gray-100 rounded">← Back</button>
+                <h2 className="text-xl font-bold">{zone?.name}</h2>
+              </div>
+              <div className="text-sm text-gray-600">Terrain basemap (OpenTopoMap)</div>
+            </div>
+
+            {/* Map — center of attraction */}
+            <div id={containerId} style={{ height: '80vh' }} className="leaflet-container"></div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ------------------------------
+  // NEW: SatelliteViewPage (ADDED)
+  // ------------------------------
+  const SatelliteViewPage = ({ user, zoneId, onBack }) => {
+    const zone = mockRiskZones.find(z => z.id === zoneId);
+    const mapRef = useRef(null);
+    const containerId = `sat-map-${zoneId}`;
+    const defaultCenter = [29.6, 79.7];
+    const defaultZoom = 11;
+
+    useEffect(() => {
+      if (!mapRef.current) {
+        mapRef.current = L.map(containerId, { zoomControl: true }).setView(defaultCenter, defaultZoom);
+
+        // Esri World Imagery satellite basemap
+        const esri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+          maxZoom: 19,
+          attribution: 'Tiles &copy; Esri'
+        });
+
+        const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors'
+        });
+
+        esri.addTo(mapRef.current);
+        L.control.layers({ 'Satellite (Esri)': esri, 'Street (OSM)': osm }, {}, { position: 'topright' }).addTo(mapRef.current);
+      }
+
+      return () => {
+        if (mapRef.current) {
+          mapRef.current.remove();
+          mapRef.current = null;
+        }
+      };
+    }, [containerId]);
+
+    return (
+      <div className="bg-gray-50 min-h-screen">
+        <Header title={`Satellite View: ${zone?.name || ''}`} user={user} />
+        <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+          <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b">
+              <div className="flex items-center space-x-3">
+                <button onClick={onBack} className="px-3 py-2 bg-gray-100 rounded">← Back</button>
+                <h2 className="text-xl font-bold">{zone?.name}</h2>
+              </div>
+              <div className="text-sm text-gray-600">Satellite basemap (Esri World Imagery)</div>
+            </div>
+
+            {/* Map — center of attraction */}
+            <div id={containerId} style={{ height: '80vh' }} className="leaflet-container"></div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // --- Main application routing (MINOR ROUTE CHANGE ONLY) ---
+  const App = () => {
+    const [page, setPage] = useState('login');
+    const [user, setUser] = useState(null);
+    const [selectedZoneId, setSelectedZoneId] = useState(null);
+    const [selectedViewMode, setSelectedViewMode] = useState(null);
+
+    const handleLogin = (authenticatedUser) => { setUser(authenticatedUser); setPage('dashboard'); };
+    const handleLogout = () => { setUser(null); setPage('login'); };
+
+    const handleSelectZone = (zoneId, viewMode) => {
+      setSelectedZoneId(zoneId); setSelectedViewMode(viewMode);
+      if (viewMode === 'grid') setPage('gridView');
+      else if (viewMode === 'terrain') setPage('terrainView');
+      else setPage('satelliteView');
+    };
+
+    const handleBackToDashboard = () => { setSelectedZoneId(null); setSelectedViewMode(null); setPage('dashboard'); };
+
+    let content;
+    if (!user || page === 'login') content = <LoginPage onLogin={handleLogin} />;
+    else if (page === 'dashboard') content = <DashboardPage user={user} onSelectZone={handleSelectZone} onLogout={handleLogout} />;
+    else if (selectedZoneId && page === 'gridView') {
+      content = <GridViewPage user={user} zoneId={selectedZoneId} viewMode={selectedViewMode} onBack={handleBackToDashboard} />;
+    } else if (selectedZoneId && page === 'terrainView') {
+      // NEW: show Terrain page
+      content = <TerrainViewPage user={user} zoneId={selectedZoneId} onBack={handleBackToDashboard} />;
+    } else if (selectedZoneId && page === 'satelliteView') {
+      // NEW: show Satellite page
+      content = <SatelliteViewPage user={user} zoneId={selectedZoneId} onBack={handleBackToDashboard} />;
+    } else {
+      content = <div className="p-10 text-center"><h1 className="text-3xl text-red-600">Navigation Error</h1><button onClick={handleLogout} className="mt-4 text-blue-600">Go to Login</button></div>;
+    }
+
+    return content;
+  };
+
+  ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+  </script>
+</body>
+</html>

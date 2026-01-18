@@ -1,0 +1,53 @@
+.fire-legend {
+  background: #ffffff;
+  border: 1px solid #c8e6c9;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-top: 8px;
+
+  display: flex;
+  align-items: center;
+  gap: 16px;
+
+  width: fit-content;
+}
+
+.fire-legend h4 {
+  margin: 0;
+  font-size: 14px;
+  color: #1b5e20;
+  white-space: nowrap;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  white-space: nowrap;
+  color: #d32f2f;
+}
+
+.legend-color {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid #555;
+}
+
+/* COLORS */
+.legend-color.unburned {
+  background: rgba(76, 175, 80, 0.5);
+}
+
+.legend-color.burning {
+  background: #d32f2f;
+}
+
+.legend-color.burned {
+  background: #757575;
+}
+
+.legend-color.ignition {
+  background: #1565c0;
+}
