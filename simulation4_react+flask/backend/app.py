@@ -1,3 +1,4 @@
+from lstm.infer import predict_p_ignite
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from PIL import Image 
@@ -39,10 +40,26 @@ def simulate():
 
     date = date.replace("-", "_")
 
-    p_ignite, fire_seed = load_data_for_date(date)
+    # Load only fire seed (for grid shape / optional reference)
+    _, fire_seed = load_data_for_date(date)
+    WEATHER_CSV = os.path.join(
+        BASE_DIR,
+        "data",
+        "Almora_ERA5_Hourly_Weather_2018_2020_MAM.csv"
+    )
+    print("Looking for weather CSV at:", WEATHER_CSV)
+    print("Exists?", os.path.exists(WEATHER_CSV))
+
+    p_ignite = predict_p_ignite(
+        weather_csv=WEATHER_CSV,
+        target_date=date.replace("_", "-")
+    )
+
+    print("🔥 LSTM predicted p_ignite:", p_ignite)
+
 
     DOWNSAMPLE = 10
-    BASE_DIR = os.path.dirname(__file__)
+    
 
     def load_static(name):
         path = os.path.join(BASE_DIR, "data", "static", name)
@@ -57,13 +74,21 @@ def simulate():
     rows, cols = state.shape
 
     if ignition_mode == "model":
-        state[fire_seed[::DOWNSAMPLE, ::DOWNSAMPLE] == 1] = 1
+        rng = np.random.rand(rows, cols)
+
+        # 🔥 Sparse ignition (CRITICAL)
+        ignition_threshold = p_ignite * 0.05
+
+        state[rng < ignition_threshold] = 1
+
     else:
         for p in user_points:
             i = p["row"]
             j = p["col"]
             state[i, j] = 1
 
+    print("Initial burning cells:", np.sum(state == 1))
+    print("Total cells:", state.size)
 
     wind_dir = wind_direction(2.0, 1.0)
 
