@@ -1,4 +1,4 @@
-# 🔥 Forest Fire Risk Assessment and Spread Simulation
+#  Forest Fire Risk Assessment and Spread Simulation
 
 This project presents an AI-based system for forest fire analysis in Uttarakhand (Almora region).
 
